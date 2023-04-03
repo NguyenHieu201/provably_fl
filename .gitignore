@@ -5,7 +5,6 @@
 /algorithm/fedrl_utils/models
 /algorithm/fedrl_utils/baseline
 /algorithm/kd_utils/
-/benchmark/
 /fedtask/
 .vscode*
 /utils/figures/
