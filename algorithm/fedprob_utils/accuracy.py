@@ -19,6 +19,7 @@ class ApproximateAccuracy(Accuracy):
         return np.array([self.at_radius(self.certify_results, radius) for radius in radii])
 
     def at_radius(self, df: pd.DataFrame, radius: float):
+        # True: predict == gt & cert_radis >= radius
         return (df["correct"] & (df["radius"] >= radius)).mean()
 
 

@@ -5,6 +5,9 @@ import os
 import multiprocessing
 
 class MyLogger(flw.Logger):
+    def addition_log(self, log_func: function):
+        log_func()
+
     def log(self, server=None):
         if server==None: return
         if self.output == {}:
