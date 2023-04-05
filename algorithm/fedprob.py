@@ -109,7 +109,7 @@ class Server(BasicServer):
             self.iterate(round)
             # decay learning rate
             self.global_lr_scheduler(round)
-            self.certify()
+            # self.certify()
 
             logger.time_end('Time Cost')
             if logger.check_if_log(round, self.eval_interval):
@@ -128,7 +128,7 @@ class Server(BasicServer):
 
         for idx in range(self.num_clients):
             client_certify_acc = self.clients[idx].certify_test_radius(self.model, self.radii)
-            logger.output["client_certify_acc"][idx] = client_certify_acc
+            logger.output["client_certify_acc"][idx] = client_certify_acc.tolist()
 
     # TODO: change hard fix options
     def certify(self):
