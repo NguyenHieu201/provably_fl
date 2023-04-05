@@ -68,6 +68,7 @@ class Client(BasicClient):
                         "correct": correct
                     }
                     certify_results.append(certify_result)
+                    idx += 1 
         return pd.DataFrame(certify_results)
     
     def accuracy_at_radii(self, model: nn.Module, data_loader: DataLoader, radii: np.ndarray) -> np.ndarray:
@@ -152,6 +153,7 @@ class Server(BasicServer):
                         "correct": correct
                     }
                     certify_results.append(certify_result)
+                    idx += 1 
         df = pd.DataFrame(certify_results)
 
         # cal accuracy (certify accuracy)
