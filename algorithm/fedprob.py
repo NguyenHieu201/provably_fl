@@ -9,18 +9,24 @@ import pandas as pd
 from .fedbase import BasicClient, BasicServer
 from .fedprob_utils.smooth import Smooth
 from .fedprob_utils.accuracy import ApproximateAccuracy
-from main import logger
+from main import logger 
 import utils.fflow as flw
+import pickle as pk 
+
+# SIGMA = 0.5
+
+
 
 class Client(BasicClient):
     # TODO: change hard fix options
+    # TODO: Tien update, don't have to check 
     def __init__(self, option, name='', train_data=None, valid_data=None):
         super().__init__(option, name, train_data, valid_data)
-        self.sigma = 0.5
+        self.sigma = option['sigma']    
         self.N0 = 100
         self.N = 1000
         self.alpha = 0.05
-        self.num_classes = 23
+        self.num_classes = 10
 
     def train(self, model: nn.Module):
         """
@@ -49,10 +55,10 @@ class Client(BasicClient):
         """
         Return predict, radius
         """
-        certify_model = Smooth(model, self.num_classes, self.sigma, self.N0, self.N, self.alpha, self.calculator.device)
+        certify_model = Smooth(model, self.num_classes, self.sigma , self.N0, self.N, self.alpha, self.calculator.device)
         certify_results = []
         idx = 0
-        certify_sample = 100
+        certify_sample = 1
 
         for batch_id, batch_data in enumerate(data_loader):
             inputs, outputs = batch_data
@@ -89,8 +95,8 @@ class Server(BasicServer):
     # TODO: change hard fix options
     def __init__(self, option, model: nn.Module, clients: list[Client], test_data=None):
         super().__init__(option, model, clients, test_data)
-        self.num_classes = 23
-        self.sigma = 0.5
+        self.num_classes = 10
+        self.sigma = option["sigma"]
         self.N0 = 100
         self.N = 1000
         self.alpha = 0.05
@@ -115,13 +121,18 @@ class Server(BasicServer):
             logger.time_end('Time Cost')
             if logger.check_if_log(round, self.eval_interval):
                 logger.log(self)
+            
+            
 
         print("=================End==================")
         self.log_certify()
         logger.time_end('Total Time Cost')
         # save results as .json file
         logger.save(os.path.join('fedtask', self.option['task'], 'record', flw.output_filename(self.option, self)))
-
+        
+        f = open( os.path.join('fedtask', self.option['task'], 'record', flw.output_filename(self.option, self)) + '.pkl', "wb")
+        pk.dump(self.model, f) 
+        
     def log_certify(self):
         server_certify_acc = self.certify().tolist()
         logger.output["server_certify_acc"] = server_certify_acc
@@ -137,7 +148,8 @@ class Server(BasicServer):
         certify_model = Smooth(self.model, self.num_classes, self.sigma, self.N0, self.N, self.alpha, device=self.calculator.device)
         certify_results = []
         idx = 0
-        certify_sample = 100
+        certify_sample = 1
+        
 
         for batch_id, batch_data in enumerate(data_loader):
             inputs, outputs = batch_data

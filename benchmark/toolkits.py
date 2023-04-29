@@ -120,7 +120,7 @@ class BasicTaskGen:
         return os.path.exists(os.path.join(self.rootpath, taskname))
 
 class DefaultTaskGen(BasicTaskGen):
-    def __init__(self, benchmark, dist_id, skewness, rawdata_path, num_clients=1, minvol=10, seed=0):
+    def __init__(self, benchmark, dist_id, skewness, rawdata_path, num_clients=1, minvol=40, seed=0):
         super(DefaultTaskGen, self).__init__(benchmark, dist_id, skewness, rawdata_path, seed)
         self.minvol=minvol
         self.num_classes = -1
@@ -275,6 +275,97 @@ class DefaultTaskGen(BasicTaskGen):
                 minv = np.min(proportions * len(self.train_data))
             proportions = (np.cumsum(proportions) * len(d_idxs)).astype(int)[:-1]
             local_datas  = np.split(d_idxs, proportions)
+            
+        # TODO: fix hard settings
+        elif self.dist_id == 7:
+            labels = [data[1] for data in self.train_data]
+            d_idxs = list(range(len(self.train_data)))
+            d_idxs = zip(d_idxs, labels)
+            d_idxs = sorted(d_idxs, key=lambda x: x[1])
+            d_idxs = [d[0] for d in d_idxs]
+            d_idxs = np.array(d_idxs)
+            
+            # split data for some parts
+            median_part = d_idxs[:500]
+            data_parts = d_idxs[500:]
+            
+            local_datas = np.split(data_parts, self.num_clients)
+            
+            # select client for add median_part
+            for i in range(30):
+                client_data = np.concatenate((local_datas[i], median_part))
+                local_datas[i] = client_data
+        
+        elif self.dist_id == 8:
+            raise NotImplementedError("Please use dist 8 already exists in fedtask")    
+        
+        # client dist IID with each other but non-IID with server
+        elif self.dist_id == 9:
+            labels = [data[1] for data in self.train_data]
+            d_idxs = list(range(len(self.train_data)))
+            d_idxs = zip(d_idxs, labels)
+            d_idxs = sorted(d_idxs, key=lambda x: x[1])
+            d_idxs = [d[0] for d in d_idxs]
+            d_idxs = np.array(d_idxs)
+            d_labels = np.split(d_idxs, self.num_classes)
+
+            # remove some sample in each label
+            # TODO: change hard fix options
+            remove_labels = 5
+            remove_sample = list(range(50, 500))
+            for label in range(remove_labels):
+                sample_remove = random.choice(remove_sample)
+                d_labels[label] = d_labels[label][sample_remove:]
+
+            for label in range(self.num_classes):
+                d_labels[label] = np.array_split(d_labels[label], self.num_clients)
+            
+            local_datas = []
+            for i in range(self.num_clients):
+                local_data = []
+                for label in range(self.num_classes):
+                    local_data = local_data + list(d_labels[label][i])
+                local_datas.append(local_data)
+
+        # client dist non-IID with each other and not-IID with server
+        elif self.dist_id == 10:
+            labels = [data[1] for data in self.train_data]
+            d_idxs = list(range(len(self.train_data)))
+            d_idxs = zip(d_idxs, labels)
+            d_idxs = sorted(d_idxs, key=lambda x: x[1])
+            d_idxs = [d_idx[0] for d_idx in d_idxs]
+            d_idxs = np.array(d_idxs)
+            d_idxs = np.split(d_idxs, self.num_classes)
+            remove_sample = list(range(50, 500))
+            remove_list = []
+            train_idxs = []
+            for i in range(self.num_classes):
+                remove = random.choice(remove_sample)
+                while (remove in remove_list):
+                    remove = random.choice(remove_sample)
+                remove_list.append(remove)
+                d_idxs[i] = d_idxs[i][remove:]
+                train_idxs = train_idxs + d_idxs[i].tolist()
+
+            min_size = 0
+            dpairs = [[did, self.train_data[did][-1]] for did in train_idxs]
+            local_datas = [[] for _ in range(self.num_clients)]
+            while min_size < self.minvol:
+                idx_batch = [[] for i in range(self.num_clients)]
+                for k in range(self.num_classes):
+                    idx_k = [p[0] for p in dpairs if p[1]==k]
+                    np.random.shuffle(idx_k)
+                    proportions = np.random.dirichlet(np.repeat(self.skewness, self.num_clients))
+                    ## Balance
+                    proportions = np.array([p * (len(idx_j) < len(self.train_data)/ self.num_clients) for p, idx_j in zip(proportions, idx_batch)])
+                    proportions = proportions / proportions.sum()
+                    proportions = (np.cumsum(proportions) * len(idx_k)).astype(int)[:-1]
+                    idx_batch = [idx_j + idx.tolist() for idx_j, idx in zip(idx_batch, np.split(idx_k, proportions))]
+                    min_size = min([len(idx_j) for idx_j in idx_batch])
+            for j in range(self.num_clients):
+                np.random.shuffle(idx_batch[j])
+                local_datas[j].extend(idx_batch[j])
+            
         return local_datas
 
     def local_holdout(self, local_datas, rate=0.8, shuffle=False):
