@@ -12,3 +12,13 @@
 test*
 env
 __pycache__/
+*.npy
+.env
+option_logs/
+figure/
+figure-t/
+100client/
+*/data/
+data/
+wandb/
+

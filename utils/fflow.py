@@ -67,6 +67,10 @@ def read_option():
     # server gpu
     parser.add_argument('--server_gpu_id', help='server process on this gpu', type=int, default=0)
     
+    # wandb log
+    parser.add_argument('--wandb', action="store_true", default=False)
+    parser.add_argument('--session_name', type=str, default="")
+    
     try: option = vars(parser.parse_args())
     except IOError as msg: parser.error(str(msg))
     return option

@@ -9,20 +9,20 @@ import pandas as pd
 from .fedbase import BasicClient, BasicServer
 from .fedprob_utils.smooth import Smooth
 from .fedprob_utils.accuracy import ApproximateAccuracy
-from main import logger 
+from main import logger
 import utils.fflow as flw
-import pickle as pk 
+import pickle as pk
 
 # SIGMA = 0.5
-
+optional_record_path = ""
 
 
 class Client(BasicClient):
     # TODO: change hard fix options
-    # TODO: Tien update, don't have to check 
+    # TODO: Tien update, don't have to check
     def __init__(self, option, name='', train_data=None, valid_data=None):
         super().__init__(option, name, train_data, valid_data)
-        self.sigma = option['sigma']    
+        self.sigma = option['sigma']
         self.N0 = 100
         self.N = 1000
         self.alpha = 0.05
@@ -34,15 +34,18 @@ class Client(BasicClient):
         Client training with noisy data
         """
         model.train()
-        data_loader = self.calculator.get_data_loader(self.train_data, batch_size=self.batch_size)
-        optimizer = self.calculator.get_optimizer(self.optimizer_name, model, lr = self.learning_rate, weight_decay=self.weight_decay, momentum=self.momentum)
+        data_loader = self.calculator.get_data_loader(
+            self.train_data, batch_size=self.batch_size)
+        optimizer = self.calculator.get_optimizer(
+            self.optimizer_name, model, lr=self.learning_rate, weight_decay=self.weight_decay, momentum=self.momentum)
 
         # Traing phase for base classifer
         for iter in range(self.epochs):
             for batch_id, batch_data in enumerate(data_loader):
                 model.zero_grad()
                 inputs, outputs = batch_data
-                inputs = inputs.to(self.calculator.device) + torch.rand_like(inputs, device=self.calculator.device) * self.sigma
+                inputs = inputs.to(self.calculator.device) + torch.rand_like(
+                    inputs, device=self.calculator.device) * self.sigma
 
                 noisy_batch = [inputs, outputs]
 
@@ -55,7 +58,8 @@ class Client(BasicClient):
         """
         Return predict, radius
         """
-        certify_model = Smooth(model, self.num_classes, self.sigma , self.N0, self.N, self.alpha, self.calculator.device)
+        certify_model = Smooth(model, self.num_classes, self.sigma,
+                               self.N0, self.N, self.alpha, self.calculator.device)
         certify_results = []
         idx = 0
         certify_sample = 1
@@ -63,7 +67,7 @@ class Client(BasicClient):
         for batch_id, batch_data in enumerate(data_loader):
             inputs, outputs = batch_data
             batch_size = inputs.shape[0]
-            
+
             for i in range(batch_size):
                 if idx % certify_sample == 0:
                     input, output = inputs[i], outputs[i]
@@ -71,23 +75,30 @@ class Client(BasicClient):
                     correct = pred == output.data.max()
                     certify_result = {
                         "radius": radius,
-                        "correct": correct
+                        "correct": correct,
+                        "label": output.data.max()
                     }
                     certify_results.append(certify_result)
-                    idx += 1 
-        return pd.DataFrame(certify_results)
-    
+                    idx += 1
+        df = pd.DataFrame(certify_results)
+        client_record_path = os.path.join(
+            optional_record_path, self.name + ".csv")
+        # df.to_csv(client_record_path)
+        return df
+
     def accuracy_at_radii(self, model: nn.Module, data_loader: DataLoader, radii: np.ndarray) -> np.ndarray:
         certify_results = self.certify(model, data_loader)
         accuracy_calculator = ApproximateAccuracy(certify_results)
         return accuracy_calculator.at_radii(radii)
 
     def certify_train_radii(self, model: nn.Module, radii: np.ndarray):
-        data_loader = self.calculator.get_data_loader(self.train_data, batch_size=self.batch_size)
+        data_loader = self.calculator.get_data_loader(
+            self.train_data, batch_size=self.batch_size)
         return self.accuracy_at_radii(model, data_loader, radii)
 
     def certify_test_radius(self, model: nn.Module, radii: np.ndarray):
-        data_loader = self.calculator.get_data_loader(self.valid_data, batch_size=self.batch_size)
+        data_loader = self.calculator.get_data_loader(
+            self.valid_data, batch_size=self.batch_size)
         return self.accuracy_at_radii(model, data_loader, radii)
 
 
@@ -102,6 +113,15 @@ class Server(BasicServer):
         self.alpha = 0.05
         self.radii = np.arange(0, 1.6, 0.1)
         self.batch_size = 64
+
+        global optional_task_path
+        optional_task_path = os.path.join('option_logs', self.option['task'])
+        optional_record_path = os.path.join(
+            optional_task_path, flw.output_filename(self.option, self))
+        if not os.path.exists(optional_task_path):
+            os.makedirs(optional_task_path)
+        if not os.path.exists(optional_record_path):
+            os.makedirs(optional_record_path)
 
     def run(self):
         """
@@ -121,40 +141,42 @@ class Server(BasicServer):
             logger.time_end('Time Cost')
             if logger.check_if_log(round, self.eval_interval):
                 logger.log(self)
-            
-            
 
         print("=================End==================")
         self.log_certify()
         logger.time_end('Total Time Cost')
         # save results as .json file
-        logger.save(os.path.join('fedtask', self.option['task'], 'record', flw.output_filename(self.option, self)))
-        
-        f = open( os.path.join('fedtask', self.option['task'], 'record', flw.output_filename(self.option, self)) + '.pkl', "wb")
-        pk.dump(self.model, f) 
-        
+        logger.save(os.path.join(
+            'fedtask', self.option['task'], 'record', flw.output_filename(self.option, self)))
+
+        f = open(os.path.join('fedtask', self.option['task'], 'record', flw.output_filename(
+            self.option, self)) + '.pkl', "wb")
+        pk.dump(self.model, f)
+
     def log_certify(self):
         server_certify_acc = self.certify().tolist()
         logger.output["server_certify_acc"] = server_certify_acc
         logger.output["client_certify_acc"] = {}
 
         for idx in range(self.num_clients):
-            client_certify_acc = self.clients[idx].certify_test_radius(self.model, self.radii)
+            client_certify_acc = self.clients[idx].certify_test_radius(
+                self.model, self.radii)
             logger.output["client_certify_acc"][idx] = client_certify_acc.tolist()
 
     # TODO: change hard fix options
     def certify(self):
-        data_loader = self.calculator.get_data_loader(self.test_data, batch_size=self.batch_size)
-        certify_model = Smooth(self.model, self.num_classes, self.sigma, self.N0, self.N, self.alpha, device=self.calculator.device)
+        data_loader = self.calculator.get_data_loader(
+            self.test_data, batch_size=self.batch_size)
+        certify_model = Smooth(self.model, self.num_classes, self.sigma,
+                               self.N0, self.N, self.alpha, device=self.calculator.device)
         certify_results = []
         idx = 0
         certify_sample = 1
-        
 
         for batch_id, batch_data in enumerate(data_loader):
             inputs, outputs = batch_data
             batch_size = inputs.shape[0]
-            
+
             for i in range(batch_size):
                 if idx % certify_sample == 0:
                     input, output = inputs[i], outputs[i]
@@ -162,11 +184,15 @@ class Server(BasicServer):
                     correct = pred == output.data.max()
                     certify_result = {
                         "radius": radius,
-                        "correct": correct
+                        "correct": correct,
+                        "label": output.data.max()
                     }
                     certify_results.append(certify_result)
-                    idx += 1 
+                    idx += 1
         df = pd.DataFrame(certify_results)
+
+        # server_cert_path = os.path.join(optional_record_path, "Server.csv")
+        # df.to_csv(server_cert_path)
 
         # cal accuracy (certify accuracy)
         accuracy_calculator = ApproximateAccuracy(df)

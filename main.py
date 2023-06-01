@@ -3,6 +3,9 @@ import numpy as np
 import torch
 import os
 import multiprocessing
+import wandb
+from dotenv import load_dotenv
+
 
 class MyLogger(flw.Logger):
     def log(self, server=None):
@@ -41,7 +44,17 @@ class MyLogger(flw.Logger):
         print(self.temp.format("Validating Accuracy:", self.output['mean_valid_accs'][-1]))
         print(self.temp.format("Mean of Client Accuracy:", self.output['mean_curve'][-1]))
         print(self.temp.format("Std of Client Accuracy:", self.output['var_curve'][-1]))
-
+        
+        if server.option['wandb']:
+            wandb.log({
+                "loss/training_loss": self.output['train_losses'][-1],
+                "loss/testing_loss": self.output['test_losses'][-1],
+                "acc/testing_accuracy": self.output['test_accs'][-1],
+                "acc/validating_accuracy":self.output['mean_valid_accs'][-1],
+                "acc/mean_cureve":self.output['mean_curve'][-1],
+                "acc/var_curve": self.output['var_curve'][-1],
+            })
+        
 
 logger = MyLogger()
 
@@ -54,10 +67,26 @@ def main():
     os.environ['WORLD_SIZE'] = str(3)
     # set random seed
     flw.setup_seed(option['seed'])
+    
+    dotenv_path = "/mnt/disk1/naver/hieunguyen/provably_fl/.env"
+    load_dotenv(dotenv_path)
+    
+    WANDB_API_KEY = os.getenv("WANDB_API_KEY")
+    wandb.login(key=WANDB_API_KEY)
+    ss_name = f"{option['task']}_{option['algorithm']}_{option['session_name']}"
+    # wandb log
+    if option["wandb"]:
+        wandb.init(
+            project="Provably_FL",
+            name=ss_name,
+            config=option
+        )
+    
     # initialize server
     server = flw.initialize(option)
     # start federated optimization
     server.run()
+    wandb.finish()
 
 if __name__ == '__main__':
     main()

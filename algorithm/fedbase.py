@@ -1,3 +1,4 @@
+from __future__ import annotations
 import numpy as np
 from utils import fmodule
 from typing import TypedDict
@@ -10,8 +11,8 @@ import os
 import utils.fflow as flw
 
 class ClientPackage(TypedDict):
-        model: nn.Module
-        train_loss: float
+    model: nn.Module
+    train_loss: float
 
 class ServerPackage(TypedDict):
     model: nn.Module

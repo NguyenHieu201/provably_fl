@@ -15,6 +15,7 @@ imbalance:
     iid:            6 Vol: only the vol of local dataset varies.
     niid:           7 Vol: for generating synthetic data
 """
+import importlib
 import torch
 import ujson
 import numpy as np
@@ -27,7 +28,7 @@ import ssl
 from torch.utils.data import Dataset, DataLoader
 import torch
 ssl._create_default_https_context = ssl._create_unverified_context
-import importlib
+
 
 def set_random_seed(seed=0):
     """Set random seed"""
@@ -35,10 +36,13 @@ def set_random_seed(seed=0):
     np.random.seed(97 + seed)
     os.environ['PYTHONHASHSEED'] = str(seed)
 
-def download_from_url(url= None, filepath = '.'):
+
+def download_from_url(url=None, filepath='.'):
     """Download dataset from url to filepath."""
-    if url: urllib.request.urlretrieve(url, filepath)
+    if url:
+        urllib.request.urlretrieve(url, filepath)
     return filepath
+
 
 def extract_from_zip(src_path, target_path):
     """Unzip the .zip file (src_path) to target_path"""
@@ -48,8 +52,10 @@ def extract_from_zip(src_path, target_path):
     f.close()
     return [os.path.join(target_path, tar) for tar in targets]
 
+
 class BasicTaskGen:
     _TYPE_DIST = {
+        -1: "quickly_develope_model",
         0: 'iid',
         1: 'label_skew_quantity',
         2: 'label_skew_dirichlet',
@@ -61,16 +67,21 @@ class BasicTaskGen:
         8: 'concept skew',
         9: 'concept and feature skew and balance',
         10: 'concept and feature skew and imbalance',
+        11: 'cluster',
+        12: 'quantitivate',
+        13: 'pareto'
     }
-    _TYPE_DATASET = ['2DImage', '3DImage', 'Text', 'Sequential', 'Graph', 'Tabular']
+    _TYPE_DATASET = ['2DImage', '3DImage',
+                     'Text', 'Sequential', 'Graph', 'Tabular']
 
     def __init__(self, benchmark, dist_id, skewness, rawdata_path, seed=0):
         self.benchmark = benchmark
         self.rootpath = './fedtask'
         self.rawdata_path = rawdata_path
         self.dist_id = dist_id
-        self.dist_name = self._TYPE_DIST[dist_id]
-        self.skewness = 0 if dist_id==0 else skewness
+        # self.dist_name = self._TYPE_DIST[dist_id]
+        self.dist_name = self._TYPE_DIST.get(dist_id, dist_id)
+        self.skewness = 0 if dist_id == 0 else skewness
         self.num_clients = -1
         self.seed = seed
         set_random_seed(self.seed)
@@ -100,7 +111,8 @@ class BasicTaskGen:
 
     def get_taskname(self):
         """Create task name and return it."""
-        taskname = '_'.join([self.benchmark, 'cnum' +  str(self.num_clients), 'dist' + str(self.dist_id), 'skew' + str(self.skewness).replace(" ", ""), 'seed'+str(self.seed)])
+        taskname = '_'.join([self.benchmark, 'cnum' + str(self.num_clients), 'dist' + str(
+            self.dist_id), 'skew' + str(self.skewness).replace(" ", ""), 'seed'+str(self.seed)])
         return taskname
 
     def get_client_names(self):
@@ -119,10 +131,12 @@ class BasicTaskGen:
         taskname = self.get_taskname()
         return os.path.exists(os.path.join(self.rootpath, taskname))
 
+
 class DefaultTaskGen(BasicTaskGen):
     def __init__(self, benchmark, dist_id, skewness, rawdata_path, num_clients=1, minvol=40, seed=0):
-        super(DefaultTaskGen, self).__init__(benchmark, dist_id, skewness, rawdata_path, seed)
-        self.minvol=minvol
+        super(DefaultTaskGen, self).__init__(
+            benchmark, dist_id, skewness, rawdata_path, seed)
+        self.minvol = minvol
         self.num_classes = -1
         self.train_data = None
         self.test_data = None
@@ -134,7 +148,7 @@ class DefaultTaskGen(BasicTaskGen):
         self.datasrc = {
             'lib': None,
             'class_name': None,
-            'args':[]
+            'args': []
         }
 
     def run(self):
@@ -154,7 +168,8 @@ class DefaultTaskGen(BasicTaskGen):
         print('-----------------------------------------------------')
         print('Partitioning data...')
         local_datas = self.partition()
-        train_cidxs, valid_cidxs = self.local_holdout(local_datas, rate=0.8, shuffle=True)
+        train_cidxs, valid_cidxs = self.local_holdout(
+            local_datas, rate=0.8, shuffle=True)
         print('Done.')
         # save task infomation as .json file and the federated dataset
         print('-----------------------------------------------------')
@@ -169,22 +184,26 @@ class DefaultTaskGen(BasicTaskGen):
         return
 
     def partition(self):
+        if self.dist_id == -1:
+            d_idxs = np.random.permutation(self.num_clients)
+            local_datas = np.array_split(d_idxs, self.num_clients)
         # Partition self.train_data according to the delimiter and return indexes of data owned by each client as [c1data_idxs, ...] where the type of each element is list(int)
-        if self.dist_id == 0:
+        elif self.dist_id == 0:
             """IID"""
             d_idxs = np.random.permutation(len(self.train_data))
             local_datas = np.array_split(d_idxs, self.num_clients)
 
         elif self.dist_id == 1:
             """label_skew_quantity"""
-            self.skewness = min(max(0, self.skewness),1.0)
-            dpairs = [[did, self.train_data[did][-1]] for did in range(len(self.train_data))]
+            self.skewness = min(max(0, self.skewness), 1.0)
+            dpairs = [[did, self.train_data[did][-1]]
+                      for did in range(len(self.train_data))]
             num = max(int((1-self.skewness)*self.num_classes), 1)
             K = self.num_classes
             local_datas = [[] for _ in range(self.num_clients)]
             if num == K:
                 for k in range(K):
-                    idx_k = [p[0] for p in dpairs if p[1]==k]
+                    idx_k = [p[0] for p in dpairs if p[1] == k]
                     np.random.shuffle(idx_k)
                     split = np.array_split(idx_k, self.num_clients)
                     for cid in range(self.num_clients):
@@ -204,7 +223,7 @@ class DefaultTaskGen(BasicTaskGen):
                             times[ind] += 1
                     contain.append(current)
                 for k in range(K):
-                    idx_k = [p[0] for p in dpairs if p[1]==k]
+                    idx_k = [p[0] for p in dpairs if p[1] == k]
                     np.random.shuffle(idx_k)
                     split = np.array_split(idx_k, times[k])
                     ids = 0
@@ -216,19 +235,24 @@ class DefaultTaskGen(BasicTaskGen):
         elif self.dist_id == 2:
             """label_skew_dirichlet"""
             min_size = 0
-            dpairs = [[did, self.train_data[did][-1]] for did in range(len(self.train_data))]
+            dpairs = [[did, self.train_data[did][-1]]
+                      for did in range(len(self.train_data))]
             local_datas = [[] for _ in range(self.num_clients)]
             while min_size < self.minvol:
                 idx_batch = [[] for i in range(self.num_clients)]
                 for k in range(self.num_classes):
-                    idx_k = [p[0] for p in dpairs if p[1]==k]
+                    idx_k = [p[0] for p in dpairs if p[1] == k]
                     np.random.shuffle(idx_k)
-                    proportions = np.random.dirichlet(np.repeat(self.skewness, self.num_clients))
-                    ## Balance
-                    proportions = np.array([p * (len(idx_j) < len(self.train_data)/ self.num_clients) for p, idx_j in zip(proportions, idx_batch)])
+                    proportions = np.random.dirichlet(
+                        np.repeat(self.skewness, self.num_clients))
+                    # Balance
+                    proportions = np.array(
+                        [p * (len(idx_j) < len(self.train_data) / self.num_clients) for p, idx_j in zip(proportions, idx_batch)])
                     proportions = proportions / proportions.sum()
-                    proportions = (np.cumsum(proportions) * len(idx_k)).astype(int)[:-1]
-                    idx_batch = [idx_j + idx.tolist() for idx_j, idx in zip(idx_batch, np.split(idx_k, proportions))]
+                    proportions = (np.cumsum(proportions) *
+                                   len(idx_k)).astype(int)[:-1]
+                    idx_batch = [idx_j + idx.tolist() for idx_j,
+                                 idx in zip(idx_batch, np.split(idx_k, proportions))]
                     min_size = min([len(idx_j) for idx_j in idx_batch])
             for j in range(self.num_clients):
                 np.random.shuffle(idx_batch[j])
@@ -236,9 +260,11 @@ class DefaultTaskGen(BasicTaskGen):
 
         elif self.dist_id == 3:
             """label_skew_shard"""
-            dpairs = [[did, self.train_data[did][-1]] for did in range(len(self.train_data))]
+            dpairs = [[did, self.train_data[did][-1]]
+                      for did in range(len(self.train_data))]
             self.skewness = min(max(0, self.skewness), 1.0)
-            num_shards = max(int((1 - self.skewness) * self.num_classes * 2), 1)
+            num_shards = max(
+                int((1 - self.skewness) * self.num_classes * 2), 1)
             client_datasize = int(len(self.train_data) / self.num_clients)
             all_idxs = [i for i in range(len(self.train_data))]
             z = zip([p[1] for p in dpairs], all_idxs)
@@ -248,10 +274,12 @@ class DefaultTaskGen(BasicTaskGen):
             idxs_shard = range(int(self.num_clients * num_shards))
             local_datas = [[] for i in range(self.num_clients)]
             for i in range(self.num_clients):
-                rand_set = set(np.random.choice(idxs_shard, num_shards, replace=False))
+                rand_set = set(np.random.choice(
+                    idxs_shard, num_shards, replace=False))
                 idxs_shard = list(set(idxs_shard) - rand_set)
                 for rand in rand_set:
-                    local_datas[i].extend(all_idxs[rand * shardsize:(rand + 1) * shardsize])
+                    local_datas[i].extend(
+                        all_idxs[rand * shardsize:(rand + 1) * shardsize])
 
         elif self.dist_id == 4:
             pass
@@ -259,7 +287,8 @@ class DefaultTaskGen(BasicTaskGen):
         elif self.dist_id == 5:
             """feature_skew_id"""
             if not isinstance(self.train_data, TupleDataset):
-                raise RuntimeError("Support for dist_id=5 only after setting the type of self.train_data is TupleDataset")
+                raise RuntimeError(
+                    "Support for dist_id=5 only after setting the type of self.train_data is TupleDataset")
             Xs, IDs, Ys = self.train_data.tolist()
             self.num_clients = len(set(IDs))
             local_datas = [[] for _ in range(self.num_clients)]
@@ -270,12 +299,14 @@ class DefaultTaskGen(BasicTaskGen):
             minv = 0
             d_idxs = np.random.permutation(len(self.train_data))
             while minv < self.minvol:
-                proportions = np.random.dirichlet(np.repeat(self.skewness, self.num_clients))
+                proportions = np.random.dirichlet(
+                    np.repeat(self.skewness, self.num_clients))
                 proportions = proportions / proportions.sum()
                 minv = np.min(proportions * len(self.train_data))
-            proportions = (np.cumsum(proportions) * len(d_idxs)).astype(int)[:-1]
-            local_datas  = np.split(d_idxs, proportions)
-            
+            proportions = (np.cumsum(proportions) *
+                           len(d_idxs)).astype(int)[:-1]
+            local_datas = np.split(d_idxs, proportions)
+
         # TODO: fix hard settings
         elif self.dist_id == 7:
             labels = [data[1] for data in self.train_data]
@@ -284,21 +315,22 @@ class DefaultTaskGen(BasicTaskGen):
             d_idxs = sorted(d_idxs, key=lambda x: x[1])
             d_idxs = [d[0] for d in d_idxs]
             d_idxs = np.array(d_idxs)
-            
+
             # split data for some parts
             median_part = d_idxs[:500]
             data_parts = d_idxs[500:]
-            
+
             local_datas = np.split(data_parts, self.num_clients)
-            
+
             # select client for add median_part
             for i in range(30):
                 client_data = np.concatenate((local_datas[i], median_part))
                 local_datas[i] = client_data
-        
+
         elif self.dist_id == 8:
-            raise NotImplementedError("Please use dist 8 already exists in fedtask")    
-        
+            raise NotImplementedError(
+                "Please use dist 8 already exists in fedtask")
+
         # client dist IID with each other but non-IID with server
         elif self.dist_id == 9:
             labels = [data[1] for data in self.train_data]
@@ -318,8 +350,9 @@ class DefaultTaskGen(BasicTaskGen):
                 d_labels[label] = d_labels[label][sample_remove:]
 
             for label in range(self.num_classes):
-                d_labels[label] = np.array_split(d_labels[label], self.num_clients)
-            
+                d_labels[label] = np.array_split(
+                    d_labels[label], self.num_clients)
+
             local_datas = []
             for i in range(self.num_clients):
                 local_data = []
@@ -336,14 +369,15 @@ class DefaultTaskGen(BasicTaskGen):
             d_idxs = [d_idx[0] for d_idx in d_idxs]
             d_idxs = np.array(d_idxs)
             d_idxs = np.split(d_idxs, self.num_classes)
-            remove_sample = list(range(50, 500))
+            remove_class = [0, 1, 2]
+            remove_sample = [500, 800, 1000]
             remove_list = []
             train_idxs = []
+
             for i in range(self.num_classes):
-                remove = random.choice(remove_sample)
-                while (remove in remove_list):
-                    remove = random.choice(remove_sample)
-                remove_list.append(remove)
+                remove = 0
+                if i in remove_class:
+                    remove = remove_sample[i]
                 d_idxs[i] = d_idxs[i][remove:]
                 train_idxs = train_idxs + d_idxs[i].tolist()
 
@@ -353,19 +387,23 @@ class DefaultTaskGen(BasicTaskGen):
             while min_size < self.minvol:
                 idx_batch = [[] for i in range(self.num_clients)]
                 for k in range(self.num_classes):
-                    idx_k = [p[0] for p in dpairs if p[1]==k]
+                    idx_k = [p[0] for p in dpairs if p[1] == k]
                     np.random.shuffle(idx_k)
-                    proportions = np.random.dirichlet(np.repeat(self.skewness, self.num_clients))
-                    ## Balance
-                    proportions = np.array([p * (len(idx_j) < len(self.train_data)/ self.num_clients) for p, idx_j in zip(proportions, idx_batch)])
+                    proportions = np.random.dirichlet(
+                        np.repeat(self.skewness, self.num_clients))
+                    # Balance
+                    proportions = np.array(
+                        [p * (len(idx_j) < len(self.train_data) / self.num_clients) for p, idx_j in zip(proportions, idx_batch)])
                     proportions = proportions / proportions.sum()
-                    proportions = (np.cumsum(proportions) * len(idx_k)).astype(int)[:-1]
-                    idx_batch = [idx_j + idx.tolist() for idx_j, idx in zip(idx_batch, np.split(idx_k, proportions))]
+                    proportions = (np.cumsum(proportions) *
+                                   len(idx_k)).astype(int)[:-1]
+                    idx_batch = [idx_j + idx.tolist() for idx_j,
+                                 idx in zip(idx_batch, np.split(idx_k, proportions))]
                     min_size = min([len(idx_j) for idx_j in idx_batch])
             for j in range(self.num_clients):
                 np.random.shuffle(idx_batch[j])
                 local_datas[j].extend(idx_batch[j])
-            
+
         return local_datas
 
     def local_holdout(self, local_datas, rate=0.8, shuffle=False):
@@ -406,11 +444,11 @@ class DefaultTaskGen(BasicTaskGen):
         }
         for cid in range(self.num_clients):
             feddata[self.cnames[cid]] = {
-                'dtrain':{
-                    'x':[self.train_data['x'][did] for did in train_cidxs[cid]], 'y':[self.train_data['y'][did] for did in train_cidxs[cid]]
+                'dtrain': {
+                    'x': [self.train_data['x'][did] for did in train_cidxs[cid]], 'y': [self.train_data['y'][did] for did in train_cidxs[cid]]
                 },
-                'dvalid':{
-                    'x':[self.train_data['x'][did] for did in valid_cidxs[cid]], 'y':[self.train_data['y'][did] for did in valid_cidxs[cid]]
+                'dvalid': {
+                    'x': [self.train_data['x'][did] for did in valid_cidxs[cid]], 'y': [self.train_data['y'][did] for did in valid_cidxs[cid]]
                 }
             }
         with open(os.path.join(self.taskpath, 'data.json'), 'w') as outf:
@@ -418,8 +456,9 @@ class DefaultTaskGen(BasicTaskGen):
         return
 
     def IDXData_to_json(self, train_cidxs, valid_cidxs):
-        if self.datasrc ==None:
-            raise RuntimeError("Attr datasrc not Found. Please define it in __init__() before calling IndexData_to_json")
+        if self.datasrc == None:
+            raise RuntimeError(
+                "Attr datasrc not Found. Please define it in __init__() before calling IndexData_to_json")
         feddata = {
             'store': 'IDX',
             'client_names': self.cnames,
@@ -434,6 +473,7 @@ class DefaultTaskGen(BasicTaskGen):
         with open(os.path.join(self.taskpath, 'data.json'), 'w') as outf:
             ujson.dump(feddata, outf)
         return
+
 
 class BasicTaskCalculator:
 
@@ -453,7 +493,7 @@ class BasicTaskCalculator:
     def get_evaluation(self):
         raise NotImplementedError
 
-    def get_data_loader(self, data, batch_size = 64):
+    def get_data_loader(self, data, batch_size=64):
         return NotImplementedError
 
     def test(self):
@@ -472,6 +512,7 @@ class BasicTaskCalculator:
     @classmethod
     def setOP(cls, OP):
         cls._OPTIM = OP
+
 
 class ClassifyCalculator(BasicTaskCalculator):
     def __init__(self, device):
@@ -515,6 +556,7 @@ class ClassifyCalculator(BasicTaskCalculator):
             raise NotImplementedError("DataLoader Not Found.")
         return DataLoader(dataset, batch_size=batch_size, shuffle=shuffle, drop_last=droplast)
 
+
 class BasicTaskReader:
     def __init__(self, taskpath=''):
         self.taskpath = taskpath
@@ -530,6 +572,7 @@ class BasicTaskReader:
         """
         pass
 
+
 class XYTaskReader(BasicTaskReader):
     def __init__(self, taskpath=''):
         super(XYTaskReader, self).__init__(taskpath)
@@ -538,9 +581,12 @@ class XYTaskReader(BasicTaskReader):
         with open(os.path.join(self.taskpath, 'data.json'), 'r') as inf:
             feddata = ujson.load(inf)
         test_data = XYDataset(feddata['dtest']['x'], feddata['dtest']['y'])
-        train_datas = [XYDataset(feddata[name]['dtrain']['x'], feddata[name]['dtrain']['y']) for name in feddata['client_names']]
-        valid_datas = [XYDataset(feddata[name]['dvalid']['x'], feddata[name]['dvalid']['y']) for name in feddata['client_names']]
+        train_datas = [XYDataset(feddata[name]['dtrain']['x'], feddata[name]
+                                 ['dtrain']['y']) for name in feddata['client_names']]
+        valid_datas = [XYDataset(feddata[name]['dvalid']['x'], feddata[name]
+                                 ['dvalid']['y']) for name in feddata['client_names']]
         return train_datas, valid_datas, test_data, feddata['client_names']
+
 
 class IDXTaskReader(BasicTaskReader):
     def __init__(self, taskpath=''):
@@ -549,19 +595,24 @@ class IDXTaskReader(BasicTaskReader):
     def read_data(self):
         with open(os.path.join(self.taskpath, 'data.json'), 'r') as inf:
             feddata = ujson.load(inf)
-        DS = getattr(importlib.import_module(feddata['datasrc']['lib']), feddata['datasrc']['class_name'])
+        DS = getattr(importlib.import_module(
+            feddata['datasrc']['lib']), feddata['datasrc']['class_name'])
         arg_strings = '(' + ','.join(feddata['datasrc']['args'])
         train_args = arg_strings + ', train=True)'
         test_args = arg_strings + ', train=False)'
         DS.SET_DATA(eval(feddata['datasrc']['class_name'] + train_args))
-        DS.SET_DATA(eval(feddata['datasrc']['class_name'] + test_args), key='TEST')
+        DS.SET_DATA(
+            eval(feddata['datasrc']['class_name'] + test_args), key='TEST')
         test_data = IDXDataset(feddata['dtest'], key='TEST')
-        train_datas = [IDXDataset(feddata[name]['dtrain']) for name in feddata['client_names']]
-        valid_datas = [IDXDataset(feddata[name]['dvalid']) for name in feddata['client_names']]
+        train_datas = [IDXDataset(feddata[name]['dtrain'])
+                       for name in feddata['client_names']]
+        valid_datas = [IDXDataset(feddata[name]['dvalid'])
+                       for name in feddata['client_names']]
         return train_datas, valid_datas, test_data, feddata['client_names']
 
+
 class XYDataset(Dataset):
-    def __init__(self, X=[], Y=[], totensor = True):
+    def __init__(self, X=[], Y=[], totensor=True):
         """ Init Dataset with pairs of features and labels/annotations.
         XYDataset transforms data that is list\array into tensor.
         The data is already loaded into memory before passing into XYDataset.__init__()
@@ -577,7 +628,8 @@ class XYDataset(Dataset):
                 self.X = torch.tensor(X)
                 self.Y = torch.tensor(Y)
             except:
-                raise RuntimeError("Failed to convert input into torch.Tensor.")
+                raise RuntimeError(
+                    "Failed to convert input into torch.Tensor.")
         else:
             self.X = X
             self.Y = Y
@@ -595,14 +647,15 @@ class XYDataset(Dataset):
         return self.X.tolist(), self.Y.tolist()
 
     def _check_equal_length(self, X, Y):
-        return len(X)==len(Y)
+        return len(X) == len(Y)
 
     def get_all_labels(self):
         return self.all_labels
 
+
 class IDXDataset(Dataset):
     # The source dataset that can be indexed by IDXDataset
-    _DATA = {'TRAIN': None,'TEST': None}
+    _DATA = {'TRAIN': None, 'TEST': None}
 
     def __init__(self, idxs, key='TRAIN'):
         """Init dataset with 'src_data' and a list of indexes that are used to position data in 'src_data'"""
@@ -612,18 +665,20 @@ class IDXDataset(Dataset):
         self.key = key
 
     @classmethod
-    def SET_DATA(cls, dataset, key = 'TRAIN'):
+    def SET_DATA(cls, dataset, key='TRAIN'):
         cls._DATA[key] = dataset
 
     @classmethod
-    def ADD_KEY_TO_DATA(cls, key, value = None):
-        if key==None:
-            raise RuntimeError("Empty key when calling class algorithm IDXData.ADD_KEY_TO_DATA")
-        cls._DATA[key]=value
+    def ADD_KEY_TO_DATA(cls, key, value=None):
+        if key == None:
+            raise RuntimeError(
+                "Empty key when calling class algorithm IDXData.ADD_KEY_TO_DATA")
+        cls._DATA[key] = value
 
     def __getitem__(self, item):
         idx = self.idxs[item]
         return self._DATA[self.key][idx]
+
 
 class TupleDataset(Dataset):
     def __init__(self, X1=[], X2=[], Y=[], totensor=True):
@@ -633,7 +688,8 @@ class TupleDataset(Dataset):
                 self.X2 = torch.tensor(X2)
                 self.Y = torch.tensor(Y)
             except:
-                raise RuntimeError("Failed to convert input into torch.Tensor.")
+                raise RuntimeError(
+                    "Failed to convert input into torch.Tensor.")
         else:
             self.X1 = X1
             self.X2 = X2
