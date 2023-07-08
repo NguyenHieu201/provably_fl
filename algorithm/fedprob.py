@@ -13,10 +13,6 @@ from main import logger
 import utils.fflow as flw
 import pickle as pk
 
-# SIGMA = 0.5
-optional_record_path = ""
-
-
 class Client(BasicClient):
     # TODO: change hard fix options
     # TODO: Tien update, don't have to check
@@ -26,7 +22,8 @@ class Client(BasicClient):
         self.N0 = 100
         self.N = 1000
         self.alpha = 0.05
-        self.num_classes = 10
+        self.num_classes = option["num_class"]
+        self.optional_record_path = os.path.join(option['optional_record_path'], option['task'], self.name + '.csv')
 
     def train(self, model: nn.Module):
         """
@@ -81,9 +78,7 @@ class Client(BasicClient):
                     certify_results.append(certify_result)
                     idx += 1
         df = pd.DataFrame(certify_results)
-        client_record_path = os.path.join(
-            optional_record_path, self.name + ".csv")
-        # df.to_csv(client_record_path)
+        df.to_csv(self.optional_record_path, index=False)
         return df
 
     def accuracy_at_radii(self, model: nn.Module, data_loader: DataLoader, radii: np.ndarray) -> np.ndarray:
@@ -106,22 +101,21 @@ class Server(BasicServer):
     # TODO: change hard fix options
     def __init__(self, option, model: nn.Module, clients: list[Client], test_data=None):
         super().__init__(option, model, clients, test_data)
-        self.num_classes = 10
+        self.num_classes = option["num_class"]
         self.sigma = option["sigma"]
         self.N0 = 100
         self.N = 1000
         self.alpha = 0.05
         self.radii = np.arange(0, 1.6, 0.1)
         self.batch_size = 64
-
-        global optional_task_path
-        optional_task_path = os.path.join('option_logs', self.option['task'])
-        optional_record_path = os.path.join(
-            optional_task_path, flw.output_filename(self.option, self))
-        if not os.path.exists(optional_task_path):
-            os.makedirs(optional_task_path)
-        if not os.path.exists(optional_record_path):
-            os.makedirs(optional_record_path)
+        self.optional_record_path = os.path.join(option['optional_record_path'], option['task'], 'Server.csv')
+        
+        option_record_folder = os.path.join(option['optional_record_path'], option['task'])
+        if not os.path.exists(option_record_folder):
+            os.makedirs(option_record_folder)
+            
+        
+        
 
     def run(self):
         """
@@ -146,12 +140,13 @@ class Server(BasicServer):
         self.log_certify()
         logger.time_end('Total Time Cost')
         # save results as .json file
-        logger.save(os.path.join(
-            'fedtask', self.option['task'], 'record', flw.output_filename(self.option, self)))
+        logger.save(os.path.join('fedtask', self.option['task'], 'record', flw.output_filename(self.option, self)))
 
         f = open(os.path.join('fedtask', self.option['task'], 'record', flw.output_filename(
             self.option, self)) + '.pkl', "wb")
         pk.dump(self.model, f)
+        model_path = os.path.join('fedtask', self.option['task'], 'record', flw.output_filename(self.option, self) + ".pt")
+        torch.save(self.model.state_dict(), model_path)
 
     def log_certify(self):
         server_certify_acc = self.certify().tolist()
