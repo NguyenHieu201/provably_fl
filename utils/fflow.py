@@ -20,6 +20,8 @@ def read_option():
     parser.add_argument('--algorithm', help='name of algorithm;', type=str, default='fedavg')
     parser.add_argument('--model', help='name of model;', type=str, default='cnn')
     parser.add_argument('--optional_record_path', type=str, default='certify_results')
+    parser.add_argument('--num_class', type=int, default=10)
+    parser.add_argument('--certify_batch_size', type=int, default=64)
 
     # methods of server side for sampling and aggregating
     parser.add_argument('--sample', help='methods for sampling clients', type=str, choices=sample_list, default='uniform')

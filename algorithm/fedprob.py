@@ -23,6 +23,7 @@ class Client(BasicClient):
         self.N = 1000
         self.alpha = 0.05
         self.num_classes = option["num_class"]
+        self.certify_batch_size = option["certify_batch_size"]
         self.optional_record_path = os.path.join(option['optional_record_path'], option['task'], self.name + '.csv')
 
     def train(self, model: nn.Module):
@@ -56,7 +57,8 @@ class Client(BasicClient):
         Return predict, radius
         """
         certify_model = Smooth(model, self.num_classes, self.sigma,
-                               self.N0, self.N, self.alpha, self.calculator.device)
+                               self.N0, self.N, self.alpha, self.calculator.device,
+                               self.certify_batch_size)
         certify_results = []
         idx = 0
         certify_sample = 1
@@ -72,8 +74,8 @@ class Client(BasicClient):
                     correct = pred == output.data.max()
                     certify_result = {
                         "radius": radius,
-                        "correct": correct,
-                        "label": output.data.max()
+                        "correct": correct.item(),
+                        "label": output.data.max().item()
                     }
                     certify_results.append(certify_result)
                     idx += 1
@@ -88,12 +90,12 @@ class Client(BasicClient):
 
     def certify_train_radii(self, model: nn.Module, radii: np.ndarray):
         data_loader = self.calculator.get_data_loader(
-            self.train_data, batch_size=self.batch_size)
+            self.train_data, batch_size=1)
         return self.accuracy_at_radii(model, data_loader, radii)
 
     def certify_test_radius(self, model: nn.Module, radii: np.ndarray):
         data_loader = self.calculator.get_data_loader(
-            self.valid_data, batch_size=self.batch_size)
+            self.valid_data, batch_size=1)
         return self.accuracy_at_radii(model, data_loader, radii)
 
 
@@ -107,7 +109,7 @@ class Server(BasicServer):
         self.N = 1000
         self.alpha = 0.05
         self.radii = np.arange(0, 1.6, 0.1)
-        self.batch_size = 64
+        self.certify_batch_size = option['certify_batch_size']
         self.optional_record_path = os.path.join(option['optional_record_path'], option['task'], 'Server.csv')
         
         option_record_folder = os.path.join(option['optional_record_path'], option['task'])
@@ -142,9 +144,6 @@ class Server(BasicServer):
         # save results as .json file
         logger.save(os.path.join('fedtask', self.option['task'], 'record', flw.output_filename(self.option, self)))
 
-        f = open(os.path.join('fedtask', self.option['task'], 'record', flw.output_filename(
-            self.option, self)) + '.pkl', "wb")
-        pk.dump(self.model, f)
         model_path = os.path.join('fedtask', self.option['task'], 'record', flw.output_filename(self.option, self) + ".pt")
         torch.save(self.model.state_dict(), model_path)
 
@@ -161,9 +160,10 @@ class Server(BasicServer):
     # TODO: change hard fix options
     def certify(self):
         data_loader = self.calculator.get_data_loader(
-            self.test_data, batch_size=self.batch_size)
+            self.test_data, batch_size=self.certify_batch_size)
         certify_model = Smooth(self.model, self.num_classes, self.sigma,
-                               self.N0, self.N, self.alpha, device=self.calculator.device)
+                               self.N0, self.N, self.alpha, device=self.calculator.device,
+                               batch_size=self.certify_batch_size)
         certify_results = []
         idx = 0
         certify_sample = 1
@@ -179,8 +179,8 @@ class Server(BasicServer):
                     correct = pred == output.data.max()
                     certify_result = {
                         "radius": radius,
-                        "correct": correct,
-                        "label": output.data.max()
+                        "correct": correct.item(),
+                        "label": output.data.max().item()
                     }
                     certify_results.append(certify_result)
                     idx += 1

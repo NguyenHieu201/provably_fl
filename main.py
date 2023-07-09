@@ -68,12 +68,13 @@ def main():
     # set random seed
     flw.setup_seed(option['seed'])
     
-    dotenv_path = "/mnt/disk1/naver/hieunguyen/provably_fl/.env"
-    load_dotenv(dotenv_path)
-    
-    WANDB_API_KEY = os.getenv("WANDB_API_KEY")
-    wandb.login(key=WANDB_API_KEY)
-    ss_name = f"{option['task']}_{option['algorithm']}_{option['session_name']}"
+    if option['wandb']:
+        dotenv_path = "/mnt/disk1/naver/hieunguyen/provably_fl/.env"
+        load_dotenv(dotenv_path)
+        
+        WANDB_API_KEY = os.getenv("WANDB_API_KEY")
+        wandb.login(key=WANDB_API_KEY)
+        ss_name = f"{option['task']}_{option['algorithm']}_{option['session_name']}"
     # wandb log
     if option["wandb"]:
         wandb.init(

@@ -434,23 +434,30 @@ class DefaultTaskGen(BasicTaskGen):
         pass
 
     def XYData_to_json(self, train_cidxs, valid_cidxs):
-        self.convert_data_for_saving()
+        # self.convert_data_for_saving()
         # save federated dataset
         feddata = {
             'store': 'XY',
             'client_names': self.cnames,
-            'dtest': self.test_data
+            'dtest': list(range(len(self.test_data)))
 
         }
+        # for cid in range(self.num_clients):
+        #     feddata[self.cnames[cid]] = {
+        #         'dtrain': {
+        #             'x': [self.train_data['x'][did] for did in train_cidxs[cid]], 'y': [self.train_data['y'][did] for did in train_cidxs[cid]]
+        #         },
+        #         'dvalid': {
+        #             'x': [self.train_data['x'][did] for did in valid_cidxs[cid]], 'y': [self.train_data['y'][did] for did in valid_cidxs[cid]]
+        #         }
+        #     }
+        
         for cid in range(self.num_clients):
             feddata[self.cnames[cid]] = {
-                'dtrain': {
-                    'x': [self.train_data['x'][did] for did in train_cidxs[cid]], 'y': [self.train_data['y'][did] for did in train_cidxs[cid]]
-                },
-                'dvalid': {
-                    'x': [self.train_data['x'][did] for did in valid_cidxs[cid]], 'y': [self.train_data['y'][did] for did in valid_cidxs[cid]]
-                }
+                'dtrain': train_cidxs[cid].tolist(),
+                'dvalid': valid_cidxs[cid].tolist()
             }
+        
         with open(os.path.join(self.taskpath, 'data.json'), 'w') as outf:
             ujson.dump(feddata, outf)
         return
@@ -577,15 +584,54 @@ class XYTaskReader(BasicTaskReader):
     def __init__(self, taskpath=''):
         super(XYTaskReader, self).__init__(taskpath)
 
+    # def read_data(self):
+    #     with open(os.path.join(self.taskpath, 'data.json'), 'r') as inf:
+    #         feddata = ujson.load(inf)
+    #     test_data = XYDataset(feddata['dtest']['x'], feddata['dtest']['y'])
+    #     train_datas = [XYDataset(feddata[name]['dtrain']['x'], feddata[name]
+    #                              ['dtrain']['y']) for name in feddata['client_names']]
+    #     valid_datas = [XYDataset(feddata[name]['dvalid']['x'], feddata[name]
+    #                              ['dvalid']['y']) for name in feddata['client_names']]
+    #     return train_datas, valid_datas, test_data, feddata['client_names']
+    
     def read_data(self):
+        info_path = os.path.join(self.taskpath, 'info.json')
+        info = ujson.load(open(info_path, "r"))
+        
+        TaskGen = getattr(importlib.import_module('.'.join(['benchmark', info['benchmark'], 'core'])), 'TaskGen')
+        generator = TaskGen(dist_id = info['dist'], skewness = info['skewness'], num_clients=info['num-clients'])
+        generator.load_data()
+        
         with open(os.path.join(self.taskpath, 'data.json'), 'r') as inf:
             feddata = ujson.load(inf)
-        test_data = XYDataset(feddata['dtest']['x'], feddata['dtest']['y'])
-        train_datas = [XYDataset(feddata[name]['dtrain']['x'], feddata[name]
-                                 ['dtrain']['y']) for name in feddata['client_names']]
-        valid_datas = [XYDataset(feddata[name]['dvalid']['x'], feddata[name]
-                                 ['dvalid']['y']) for name in feddata['client_names']]
+        
+        test_data = {
+            'x': [generator.test_data[idx][0] for idx in feddata['dtest']],
+            'y': [generator.test_data[idx][1] for idx in feddata['dtest']]
+        }   
+        
+        train_datas = []
+        valid_datas = []
+        
+        for name in feddata['client_names']:
+            train_data = {
+                'x': [generator.train_data[idx][0] for idx in feddata[name]['dtrain']],
+                'y': [generator.train_data[idx][1] for idx in feddata[name]['dtrain']]
+            }
+            valid_data = {
+                'x': [generator.train_data[idx][0] for idx in feddata[name]['dvalid']],
+                'y': [generator.train_data[idx][1] for idx in feddata[name]['dvalid']]
+            }
+            
+            train_datas.append(train_data)
+            valid_datas.append(valid_data)   
+            
+        test_data = XYDataset(test_data['x'], test_data['y'], totensor=False)
+        train_datas = [XYDataset(train_data['x'], train_data['y'], totensor=False) for train_data in train_datas]
+        valid_datas = [XYDataset(valid_data['x'], valid_data['y'], totensor=False) for valid_data in valid_datas]
         return train_datas, valid_datas, test_data, feddata['client_names']
+            
+        
 
 
 class IDXTaskReader(BasicTaskReader):
