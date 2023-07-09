@@ -454,8 +454,8 @@ class DefaultTaskGen(BasicTaskGen):
         
         for cid in range(self.num_clients):
             feddata[self.cnames[cid]] = {
-                'dtrain': train_cidxs[cid].tolist(),
-                'dvalid': valid_cidxs[cid].tolist()
+                'dtrain': train_cidxs[cid],
+                'dvalid': valid_cidxs[cid]
             }
         
         with open(os.path.join(self.taskpath, 'data.json'), 'w') as outf:
